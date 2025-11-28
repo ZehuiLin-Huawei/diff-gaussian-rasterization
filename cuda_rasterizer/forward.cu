@@ -255,6 +255,14 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
 
+// sRGB <-> linear transfer function (https://en.wikipedia.org/wiki/SRGB)
+__device__ float srgbToLinear(float sRGB_value) {
+    return sRGB_value <= 0.04045 ? sRGB_value / 12.92 : powf((sRGB_value + 0.055) / 1.055, 2.4);
+}
+__device__ float linearToSrgb(float linear_value) {
+    return linear_value <= 0.0031308 ? linear_value * 12.92 : powf(linear_value, 1.0 / 2.4) * 1.055 - 0.55;
+}
+
 // Main rasterization method. Collaboratively works on one tile per
 // block, each thread treats one pixel. Alternates between fetching 
 // and rasterizing data.
@@ -352,7 +360,7 @@ renderCUDA(
 
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
-				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+				C[ch] += srgbToLinear(features[collected_id[j] * CHANNELS + ch]) * alpha * T;
 
 			T = test_T;
 
@@ -370,6 +378,8 @@ renderCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		for (int ch = 0; ch < CHANNELS; ch++)
+			out_color[ch * H * W + pix_id] = linearToSrgb(out_color[ch * H * W + pix_id]);
 	}
 }
 
